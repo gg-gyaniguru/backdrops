@@ -1,19 +1,49 @@
 import express from 'express';
+import nodemailer from 'nodemailer';
 import {create, existsBy_id, existsByEmail, existsByUsername, type SignUp} from "../queries/user.ts";
 import {isValidEmail, isValidUsername} from "../validations/user.ts";
 import {compare, encrypt} from "../utils/bcrypt.ts";
 import User from "../models/user.ts";
 import type {CustomRequest} from "../types/CustomRequest.ts";
 import {createSrc, removeSrc} from "./drop.ts";
-import Store from "../models/store.ts";
 import {Types} from "mongoose";
 import {verify} from "../middlewares/user.ts";
 import {generateAccessToken} from "../utils/jwt.ts";
 import Drop from "../models/drop.ts";
 import Comment from "../models/comment.ts";
+import Notification from "../models/notification.ts";
 
+const {GMAIL_ID, GMAIL_PASSWORD} = process.env;
 
 const router = express.Router();
+
+router.post('/otp', async (request, response) => {
+    try {
+        const {email, otp} = request.body;
+
+        const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+                user: GMAIL_ID,
+                pass: GMAIL_PASSWORD
+            }
+        });
+
+        const mailOptions = {
+            from: GMAIL_ID,
+            to: email,
+            subject: 'backdrops verification',
+            text: otp
+        }
+
+        await transporter.sendMail(mailOptions);
+
+        return response.status(201).json({message: 'otp send success'});
+
+    } catch (error) {
+        return response.status(500).json({message: 'internal error'});
+    }
+});
 
 router.post('/signup', async (request, response) => {
 
@@ -42,7 +72,7 @@ router.post('/signup', async (request, response) => {
 
         const encryptPassword = await encrypt(password);
 
-        const user: SignUp = {username, email, password: encryptPassword};
+        const user: SignUp = {username: username, email: email, password: encryptPassword};
         const createUser = await create(user);
 
         const accessToken = generateAccessToken(`${createUser._id}`);
@@ -104,9 +134,7 @@ router.post('/upload', async (request: CustomRequest, response) => {
         }
 
         if (user.src) {
-            const _id = user.src.toString();
-            await Store.deleteOne({_id});
-            removeSrc([_id]);
+            await removeSrc(user.src);
         }
 
         const files = request.files as { image: any };
@@ -165,9 +193,10 @@ router.get('/get/:username', async (request: CustomRequest, response) => {
                     _id: 1,
                     src: 1,
                     username: 1,
-                    drops: {$size: '$drops'},
                     following: {$size: '$following'},
                     followers: {$size: '$followers'},
+                    drops: {$size: '$drops'},
+                    collections: {$size: '$collections'},
                     isFollowing: 1,
                     verified: 1
                 }
@@ -184,14 +213,23 @@ router.get('/search/:username', async (request: CustomRequest, response) => {
     try {
         const {username} = request.params;
 
+        const page = parseInt(`${request?.query?.page}`) || 1;
+        const limit = parseInt(`${request?.query?.limit}`) || 10;
+        const skip = (page - 1) * limit;
 
-        const users = await User.find({username: new RegExp(`^${username}`)}).select(['src', 'username', 'verified']).exec();
+        const allUsers = await User.find({username: {$regex: username, $options: 'i'}}).countDocuments().exec();
+        const users = await User.find({
+            username: {
+                $regex: username,
+                $options: 'i'
+            }
+        }).select(['src', 'username', 'verified']).skip(skip).limit(limit).exec();
 
         if (!users) {
             return response.status(404).json({message: 'user not found'});
         }
 
-        return response.status(200).json({data: users});
+        return response.status(200).json({data: users, allUsers});
     } catch (error) {
         return response.status(500).json({message: 'something went wrong'});
     }
@@ -210,8 +248,17 @@ router.post('/follow', async (request: CustomRequest, response) => {
         await User.updateOne({_id: _id}, {$push: {following: following_id}}).exec();
         await User.updateOne({_id: following_id}, {$push: {followers: _id}}).exec();
 
+        const notification = new Notification({
+            reference: 'follow',
+            user: _id,
+        });
+
+        const newNotification = await notification.save();
+
+        await User.updateOne({_id: following_id}, {$push: {notifications: `${newNotification._id}`}}).exec();
         return response.status(202).json({message: 'following'});
     } catch (error) {
+
         return response.status(500).json({message: 'internal error'});
     }
 });
@@ -245,29 +292,6 @@ router.get('/following/:_id', async (request: CustomRequest, response) => {
 
         const skip = (page - 1) * limit;
 
-        /*const users = await User.aggregate([
-            {$match: {username}},
-            {
-                $addFields: {
-                    isFollowing: {
-                        $in: [new Types.ObjectId(_id), '$followers']
-                    }
-                },
-            },
-            {
-                $project: {
-                    _id: 1,
-                    src: 1,
-                    username: 1,
-                    drops: {$size: '$drops'},
-                    following: {$size: '$following'},
-                    followers: {$size: '$followers'},
-                    isFollowing: 1,
-                    verified: 1
-                }
-            }
-        ]);*/
-
         const users = await User.aggregate([
             {$match: {_id: new Types.ObjectId(_id)}},
             {
@@ -283,8 +307,13 @@ router.get('/following/:_id', async (request: CustomRequest, response) => {
                     allUsers: {$size: '$following'}
                 }
             },
-            {$skip: skip},
-            {$limit: limit},
+            {
+                $addFields: {
+                    followers: {
+                        $slice: ['$followers', skip, limit],
+                    }
+                }
+            },
             {
                 $project: {
                     following: {
@@ -315,37 +344,14 @@ router.get('/following/:_id', async (request: CustomRequest, response) => {
 
 router.get('/followers/:_id', async (request: CustomRequest, response) => {
     try {
-        const {_id} = request.params;
+        const {_id} = request?.params;
 
-        const page = Number(request.query.page) || 1;
-        const limit = Number(request.query.limit) || 10;
+        const page = parseInt(`${request?.query?.page}`) || 1;
+        const limit = parseInt(`${request?.query?.limit}`) || 10;
 
         const skip = (page - 1) * limit;
 
-        /*const users = await User.aggregate([
-            {$match: {username}},
-            {
-                $addFields: {
-                    isFollowing: {
-                        $in: [new Types.ObjectId(_id), '$followers']
-                    }
-                },
-            },
-            {
-                $project: {
-                    _id: 1,
-                    src: 1,
-                    username: 1,
-                    drops: {$size: '$drops'},
-                    following: {$size: '$following'},
-                    followers: {$size: '$followers'},
-                    isFollowing: 1,
-                    verified: 1
-                }
-            }
-        ]);*/
-
-        const users = await User.aggregate([
+        const followers = await User.aggregate([
             {$match: {_id: new Types.ObjectId(_id)}},
             {
                 $lookup: {
@@ -360,8 +366,13 @@ router.get('/followers/:_id', async (request: CustomRequest, response) => {
                     allUsers: {$size: '$followers'}
                 }
             },
-            {$skip: skip},
-            {$limit: limit},
+            {
+                $addFields: {
+                    followers: {
+                        $slice: ['$followers', skip, limit],
+                    }
+                }
+            },
             {
                 $project: {
                     followers: {
@@ -372,19 +383,14 @@ router.get('/followers/:_id', async (request: CustomRequest, response) => {
                     },
                     allUsers: 1,
                 }
-            }
+            },
         ]);
 
-        /*const users = await User.findOne({_id}).select({following: {$slice: [skip, limit]}}).populate({
-            path: 'following',
-            select: ['src', 'username', 'verified'],
-        }).exec();*/
-
-        if (!users) {
+        if (!followers) {
             return response.status(404).json({message: 'users not found'});
         }
 
-        return response.status(200).json({data: users[0]});
+        return response.status(200).json({data: followers[0]});
     } catch (error) {
         return response.status(500).json({message: error});
     }
@@ -415,7 +421,6 @@ router.get('/likes', async (request: CustomRequest, response) => {
                     preserveNullAndEmptyArrays: true
                 }
             },
-
             {
                 $lookup: {
                     from: 'users',
@@ -452,7 +457,9 @@ router.get('/likes', async (request: CustomRequest, response) => {
                                 verified: '$user.verified',
                             },
                             likes: {$size: '$drops.likes'},
-                            isLike: true,
+                            isLike: {
+                                $in: [new Types.ObjectId(_id), '$likes']
+                            },
                             comments: {$size: '$drops.comments'},
                         }
                     }
@@ -530,13 +537,44 @@ router.delete('/remove', async (request: CustomRequest, response) => {
 
                 await User.updateMany({following: _id}, {$pull: {following: _id}}).exec();
                 await User.updateMany({followers: _id}, {$pull: {followers: _id}}).exec();
-                await Drop.updateMany({likes: _id}, {$pull: {likes: _id}}).exec();
-                await Drop.updateMany({comments: _id}, {$pull: {comments: _id}}).exec();
+                await Drops.updateMany({likes: _id}, {$pull: {likes: _id}}).exec();
+                await Drops.updateMany({comments: _id}, {$pull: {comments: _id}}).exec();
                 await User.deleteMany({user: _id}).exec();
 
 
 
                 return response.status(201).json({message: 'removed'});*/
+    } catch (error) {
+        return response.status(500).json({message: 'something went wrong'});
+    }
+});
+
+router.get('/getAll', async (request: CustomRequest, response) => {
+    try {
+        const _id = request._id;
+        const page = Number(request.query.page) || 1;
+        const limit = Number(request.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        if (_id !== '669bee9eaf94898c4ecff0ad') {
+            return response.status(401).json({message: 'access denied'});
+        }
+
+        const users = await User.aggregate([
+            {$skip: skip},
+            {$limit: limit},
+            {
+                $project: {
+                    username: 1,
+                    drops: {$size: '$drops'},
+                    following: {$size: '$following'},
+                    followers: {$size: '$followers'},
+                    verified: 1
+                }
+            }
+        ]);
+
+        return response.status(200).json({data: users});
     } catch (error) {
         return response.status(500).json({message: 'something went wrong'});
     }

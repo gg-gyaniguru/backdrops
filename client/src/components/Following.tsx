@@ -12,32 +12,35 @@ type Following = {
 
 const Following = ({_id, title, from}: Following) => {
 
+    const [isFetching, setIsFetching] = useState(false);
     const [users, setUsers] = useState<user[]>([]);
-    const [allUsers, setAllUsers] = useState(0);
     const [page, setPage] = useState(1);
+    const [totalPage, setTotalPage] = useState(1);
 
     const action = async () => {
         try {
-            const response = await get(`user/${from}/${_id}?page=${page}`);
+            setIsFetching(true);
+            const response = await get(`/user/${from}/${_id}?page=${page}`);
+            setIsFetching(false);
             const data = response.data[from];
             setUsers(users => [...users, ...data]);
-            setAllUsers(response.data.allUsers);
+            setTotalPage(Math.ceil((response?.data?.allUsers) / 10));
             setPage(page => page + 1);
         } catch (error) {
-
+            setIsFetching(false);
         }
     }
 
     const setAction = () => {
         setUsers([]);
         setPage(1);
-        setAllUsers(0);
+        setTotalPage(1);
     }
 
     return (
         <>
             <Modal title={title} modalTitle={from} anyAction={action} setAnyAction={setAction} auto={true}>
-                <Users users={users} fetch={action} allUsers={allUsers}/>
+                <Users isFetching={isFetching} users={users} fetch={action} totalPage={totalPage} page={page}/>
             </Modal>
         </>
     );

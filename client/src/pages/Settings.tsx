@@ -17,9 +17,14 @@ const Settings = () => {
         <>
             <Container className={'my-20'}>
                 <div>
-                    <div>
-                        <button className={'w-full px-3 py-1.5 bg-gray-800 rounded-xl'} onClick={signOut}>Sign Out</button>
-                        <button className={'w-full mt-3.5 px-3 py-1.5 bg-red-600 rounded-xl'} onClick={() => toast.info('not working')}>Delete Account</button>
+                    <div className={'flex flex-col gap-3.5'}>
+                        {/*<button className={'w-full px-3 py-1.5 bg-gray-800 rounded-xl'} onClick={() => navigate('/likes')}>Likes History
+                        </button>*/}
+                        <button className={'w-full px-3 py-1.5 bg-gray-800 rounded-xl'} onClick={signOut}>Sign Out
+                        </button>
+                        <button className={'w-full px-3 py-1.5 bg-red-600 rounded-xl'}
+                                onClick={() => toast.info('not working')}>Delete Account
+                        </button>
                     </div>
                 </div>
             </Container>

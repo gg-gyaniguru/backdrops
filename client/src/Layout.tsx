@@ -1,25 +1,14 @@
 import {Toaster} from 'sonner';
-import {Outlet, useLocation, useNavigate} from 'react-router-dom';
-import {useEffect} from 'react';
-import {getKey} from './utils/local.ts';
+import {Outlet} from 'react-router-dom';
 import {FooterNavbar, Navbar, Splash} from "./components";
+import {setKey} from "./utils/local.ts";
 
 const Layout = () => {
 
-    const location = useLocation();
-    const navigate = useNavigate();
-
-    // useEffect(() => {
-        /*if (!getKey('_id') || !getKey('accessToken')) {
-            if (location.pathname === '/signin') {
-                navigate('/signin');
-            } else if (location.pathname === '/signup') {
-                navigate('/signup');
-            } else {
-                navigate('/signin');
-            }
-        }*/
-    // }, [location.pathname]);
+    // const set = () => {
+    //     setKey('_id', '66fe71459767502c358bfb26');
+    //     setKey('accessToken', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJfaWQiOiI2NmZlNzE0NTk3Njc1MDJjMzU4YmZiMjYiLCJpYXQiOjE3Mjg1NzUxMTEsImV4cCI6MTcyOTAwNzExMX0.8C9ExI60qFBnlKThSYSyQ7Es6UgRbpWBDFzI59sEKCg');
+    // }
 
     return (
         <>

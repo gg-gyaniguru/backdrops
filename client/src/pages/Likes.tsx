@@ -10,13 +10,13 @@ const Likes = () => {
     const [page, setPage] = useState(1);
 
     const getDrops = async () => {
-        try {
-            const response = await get(`user/likes?page=${page}`);
+        /*try {
+            const response = await get(`/user/likes?page=${page}`);
             setDrops(response.data.drops);
             // setPage(page => page + 1);
         } catch (error) {
             setDrops([]);
-        }
+        }*/
     }
 
     useEffect(() => {
@@ -26,7 +26,10 @@ const Likes = () => {
     return (
         <>
             <Container className={'my-20'}>
-                <div className={'flex flex-col gap-6'}>
+                <div>
+                    Likes History
+                </div>
+                <div className={'mt-6 flex flex-col gap-6'}>
                     {
                         drops.map((drop: drop) =>
                             <Drop drop={drop} key={drop._id} action={getDrops}/>
